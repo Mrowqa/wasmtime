@@ -171,6 +171,10 @@ mod host_impl {
 
     #[cfg(not(target_arch = "arm"))]
     pub fn register_executable_memory(mmap: &mut Mmap) {
+        eprintln!(
+            "register_executable_memory() for mmap 0x{:?}",
+            mmap.as_ptr()
+        );
         let r = unsafe { (mmap.as_mut_ptr() as *mut ExceptionHandlerRecord).as_mut() }.unwrap();
         r.runtime_function.BeginAddress = u32::try_from(region::page::size()).unwrap();
         r.runtime_function.EndAddress = u32::try_from(mmap.len()).unwrap();
@@ -200,6 +204,16 @@ mod host_impl {
         r.thunk[10] = 0xff;
         r.thunk[11] = 0xe0;
 
+        // todo probably not needed, but call it just in case
+        unsafe {
+            region::protect(
+                mmap.as_mut_ptr(),
+                region::page::size(),
+                region::Protection::ReadExecute,
+            )
+        }
+        .expect("unable to make memory readonly and executable");
+
         let res = unsafe {
             RtlInstallFunctionTableCallback(
                 u64::try_from(mmap.as_ptr() as usize).unwrap() | 0x3,
@@ -213,6 +227,11 @@ mod host_impl {
         if res == FALSE {
             panic!("RtlInstallFunctionTableCallback() failed");
         }
+
+        eprintln!(
+            "register_executable_memory() END for mmap 0x{:?}",
+            mmap.as_ptr()
+        );
 
         // Note: our section needs to have read & execute rights, and publish() will do it.
         //       It needs to be called before calling jitted code, so everything's fine.
@@ -228,17 +247,21 @@ mod host_impl {
         context_record: PCONTEXT,
         _dispatcher_context: PDISPATCHER_CONTEXT,
     ) -> EXCEPTION_DISPOSITION {
+        eprintln!("exception_handler() for mmap 0x{:?}", exception_record);
         let mut exc_ptrs = EXCEPTION_POINTERS {
             ExceptionRecord: exception_record,
             ContextRecord: context_record,
         };
-        WasmTrapHandler(&mut exc_ptrs) as EXCEPTION_DISPOSITION
+        let ret = WasmTrapHandler(&mut exc_ptrs) as EXCEPTION_DISPOSITION;
+        eprintln!("exception_handler() END for mmap 0x{:?}", exception_record);
+        ret
     }
 
     unsafe extern "C" fn runtime_function_callback(
         _control_pc: DWORD64,
         context: PVOID,
     ) -> PRUNTIME_FUNCTION {
+        eprintln!("runtime_function_callback() for mmap 0x{:?}", context);
         // context (user data ptr) is a pointer to the first page of mmap where the needed structure lies
         context as *mut _
     }
