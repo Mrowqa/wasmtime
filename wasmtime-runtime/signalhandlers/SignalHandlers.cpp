@@ -451,15 +451,20 @@ WasmTrapHandler(LPEXCEPTION_POINTERS exception)
 {
     // TODO: this fuction should check if PC is within bounds of jit code.
 
+    // todo tmp note: there's an exception in longjmp... :/
+    printf("WasmTrapHandler 1 -- PC=%p  SP=%p\n", exception->ContextRecord->Rip, exception->ContextRecord->Rsp); fflush(stdout);
+
     // Make sure TLS is initialized before reading sAlreadyHandlingTrap.
     if (!NtCurrentTeb()->Reserved1[sThreadLocalArrayPointerIndex]) {
         return EXCEPTION_CONTINUE_SEARCH;
     }
+    printf("WasmTrapHandler 2\n"); fflush(stdout);
 
     if (sAlreadyHandlingTrap) {
         return EXCEPTION_CONTINUE_SEARCH;
     }
     AutoHandlingTrap aht;
+    printf("WasmTrapHandler 3\n"); fflush(stdout);
 
     EXCEPTION_RECORD* record = exception->ExceptionRecord;
     if (record->ExceptionCode != EXCEPTION_ACCESS_VIOLATION &&
@@ -471,11 +476,13 @@ WasmTrapHandler(LPEXCEPTION_POINTERS exception)
         return EXCEPTION_CONTINUE_SEARCH;
     }
 
+    printf("WasmTrapHandler 4\n"); fflush(stdout);
     if (!HandleTrap(exception->ContextRecord,
                     record->ExceptionCode == EXCEPTION_STACK_OVERFLOW))
     {
         return EXCEPTION_CONTINUE_SEARCH;
     }
+    printf("WasmTrapHandler 5\n"); fflush(stdout);
 
     return EXCEPTION_CONTINUE_EXECUTION;
 }
