@@ -37,17 +37,15 @@ impl CodeMemory {
             // For every mapping on Windows, we need an extra information for structured
             // exception handling. We use the same handler for every function, so just
             // one record for single mmap is fine.
-            let size = if cfg!(all(target_os = "windows", target_pointer_width = "64")) {
-                size + region::page::size()
-            } else {
-                size
-            };
+            #[cfg(all(target_os = "windows", target_pointer_width = "64"))]
+            let size = size + region::page::size();
             self.mmaps.push(mem::replace(
                 &mut self.current,
                 Mmap::with_at_least(cmp::max(0x10000, size))?,
             ));
             self.position = 0;
-            if cfg!(all(target_os = "windows", target_pointer_width = "64")) {
+            #[cfg(all(target_os = "windows", target_pointer_width = "64"))]
+            {
                 host_impl::register_executable_memory(&mut self.current);
                 self.position += region::page::size();
             }
@@ -172,8 +170,9 @@ mod host_impl {
     #[cfg(not(target_arch = "arm"))]
     pub fn register_executable_memory(mmap: &mut Mmap) {
         eprintln!(
-            "register_executable_memory() for mmap 0x{:?}",
-            mmap.as_ptr()
+            "register_executable_memory() for mmap {:?}  --  {:?}",
+            mmap.as_ptr(),
+            unsafe { mmap.as_ptr().add(mmap.len()) },
         );
         let r = unsafe { (mmap.as_mut_ptr() as *mut ExceptionHandlerRecord).as_mut() }.unwrap();
         r.runtime_function.BeginAddress = u32::try_from(region::page::size()).unwrap();
@@ -229,7 +228,7 @@ mod host_impl {
         }
 
         eprintln!(
-            "register_executable_memory() END for mmap 0x{:?}",
+            "register_executable_memory() END for mmap {:?}",
             mmap.as_ptr()
         );
 
@@ -247,13 +246,13 @@ mod host_impl {
         context_record: PCONTEXT,
         _dispatcher_context: PDISPATCHER_CONTEXT,
     ) -> EXCEPTION_DISPOSITION {
-        eprintln!("exception_handler() for mmap 0x{:?}", exception_record);
+        eprintln!("exception_handler() for mmap {:?}", exception_record);
         let mut exc_ptrs = EXCEPTION_POINTERS {
             ExceptionRecord: exception_record,
             ContextRecord: context_record,
         };
         let ret = WasmTrapHandler(&mut exc_ptrs) as EXCEPTION_DISPOSITION;
-        eprintln!("exception_handler() END for mmap 0x{:?}", exception_record);
+        eprintln!("exception_handler() END for mmap {:?}", exception_record);
         ret
     }
 
@@ -261,7 +260,7 @@ mod host_impl {
         _control_pc: DWORD64,
         context: PVOID,
     ) -> PRUNTIME_FUNCTION {
-        eprintln!("runtime_function_callback() for mmap 0x{:?}", context);
+        eprintln!("runtime_function_callback() for mmap {:?}", context);
         // context (user data ptr) is a pointer to the first page of mmap where the needed structure lies
         context as *mut _
     }
