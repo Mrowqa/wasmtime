@@ -38,14 +38,28 @@ pub extern "C" fn RecordTrap(pc: *const u8) {
 #[allow(non_snake_case)]
 #[no_mangle]
 pub extern "C" fn EnterScope(ptr: *const u8) -> *const u8 {
-    JMP_BUF.with(|buf| buf.replace(ptr))
+    let ret = JMP_BUF.with(|buf| buf.replace(ptr));
+    println!("EnterScope -- got {:?}, ret {:?}", ptr, ret);
+    ret
 }
 
 #[doc(hidden)]
 #[allow(non_snake_case)]
 #[no_mangle]
 pub extern "C" fn GetScope() -> *const u8 {
-    JMP_BUF.with(|buf| buf.get())
+    let ret = JMP_BUF.with(|buf| buf.get());
+    // println!("GetScope -- ret {:?}", ret);
+    ret
+}
+
+#[doc(hidden)]
+#[allow(non_snake_case)]
+#[no_mangle]
+// todo do cleanup here
+pub extern "C" fn LeaveScope(ptr: *const u8) {
+    let ret = JMP_BUF.with(|buf| buf.set(ptr));
+    // println!("LeaveScope -- got {:?}, ret {:?}", ptr, ret);
+    ret
 }
 
 /// Schedules fixing the stack after unwinding
@@ -54,13 +68,6 @@ pub extern "C" fn GetScope() -> *const u8 {
 #[no_mangle]
 pub extern "C" fn FixStackAfterUnwinding() {
     FIX_STACK.with(|fix_stack| fix_stack.set(true));
-}
-
-#[doc(hidden)]
-#[allow(non_snake_case)]
-#[no_mangle]
-pub extern "C" fn LeaveScope(ptr: *const u8) {
-    JMP_BUF.with(|buf| buf.set(ptr))
 }
 
 fn trap_message(_vmctx: *mut VMContext) -> String {
@@ -113,6 +120,7 @@ pub unsafe extern "C" fn wasmtime_call(
     callee: *const VMFunctionBody,
 ) -> Result<(), String> {
     if WasmtimeCall(vmctx as *mut u8, callee) == 0 {
+        run_post_unwind_actions();
         Err(trap_message(vmctx))
     } else {
         Ok(())
