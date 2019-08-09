@@ -19,6 +19,9 @@ void LeaveScope(void*);
 void* GetScope(void);
 void Unwind(void);
 
+/// Schedules fixing the stack after unwinding
+void FixStackAfterUnwinding(void);
+
 // This function performs the low-overhead signal handler initialization that we
 // want to do eagerly to ensure a more-deterministic global process state. This
 // is especially relevant for signal handlers since handler ordering depends on
