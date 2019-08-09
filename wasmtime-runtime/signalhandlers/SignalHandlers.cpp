@@ -16,6 +16,7 @@
 
 # include <windows.h>
 # include <winternl.h>
+# include <malloc.h>
 
 #elif defined(USE_APPLE_MACH_PORTS)
 # include <mach/exc.h>
@@ -443,16 +444,19 @@ static const unsigned sThreadLocalArrayPointerIndex = 11;
 static LONG WINAPI
 WasmTrapHandler(LPEXCEPTION_POINTERS exception)
 {
+    printf("WasmTrapHandler 1\n"); fflush(stdout);
     // Make sure TLS is initialized before reading sAlreadyHandlingTrap.
     if (!NtCurrentTeb()->Reserved1[sThreadLocalArrayPointerIndex]) {
         return EXCEPTION_CONTINUE_SEARCH;
     }
 
+    printf("WasmTrapHandler 2\n"); fflush(stdout);
     if (sAlreadyHandlingTrap) {
         return EXCEPTION_CONTINUE_SEARCH;
     }
     AutoHandlingTrap aht;
 
+    printf("WasmTrapHandler 3\n"); fflush(stdout);
     EXCEPTION_RECORD* record = exception->ExceptionRecord;
     if (record->ExceptionCode != EXCEPTION_ACCESS_VIOLATION &&
         record->ExceptionCode != EXCEPTION_ILLEGAL_INSTRUCTION &&
@@ -463,9 +467,18 @@ WasmTrapHandler(LPEXCEPTION_POINTERS exception)
         return EXCEPTION_CONTINUE_SEARCH;
     }
 
+    // if (record->ExceptionCode == EXCEPTION_STACK_OVERFLOW) {
+    //     if (!_resetstkoflw()) {
+    //         printf("Failed to restore PAGE_GUARD (repair the stack)");
+    //         return EXCEPTION_CONTINUE_EXECUTION;
+    //     }
+    // }
+
+    printf("WasmTrapHandler 4\n"); fflush(stdout);
     if (!HandleTrap(exception->ContextRecord)) {
         return EXCEPTION_CONTINUE_SEARCH;
     }
+    printf("WasmTrapHandler 5\n"); fflush(stdout);
 
     return EXCEPTION_CONTINUE_EXECUTION;
 }
