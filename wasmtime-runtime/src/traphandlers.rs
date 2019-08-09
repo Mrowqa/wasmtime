@@ -5,6 +5,8 @@ use crate::vmcontext::{VMContext, VMFunctionBody};
 use core::cell::Cell;
 use core::ptr;
 use std::string::String;
+#[cfg(target_os = "windows")]
+use winapi::ctypes::c_int;
 
 extern "C" {
     fn WasmtimeCallTrampoline(
@@ -13,9 +15,12 @@ extern "C" {
         values_vec: *mut u8,
     ) -> i32;
     fn WasmtimeCall(vmctx: *mut u8, callee: *const VMFunctionBody) -> i32;
+    #[cfg(target_os = "windows")]
+    fn _resetstkoflw() -> c_int;
 }
 
 thread_local! {
+    static FIX_STACK: Cell<bool> = Cell::new(false);
     static TRAP_PC: Cell<*const u8> = Cell::new(ptr::null());
     static JMP_BUF: Cell<*const u8> = Cell::new(ptr::null());
 }
@@ -43,6 +48,14 @@ pub extern "C" fn GetScope() -> *const u8 {
     JMP_BUF.with(|buf| buf.get())
 }
 
+/// Schedules fixing the stack after unwinding
+#[doc(hidden)]
+#[allow(non_snake_case)]
+#[no_mangle]
+pub extern "C" fn FixStackAfterUnwinding() {
+    FIX_STACK.with(|fix_stack| fix_stack.set(true));
+}
+
 #[doc(hidden)]
 #[allow(non_snake_case)]
 #[no_mangle]
@@ -59,6 +72,22 @@ fn trap_message(_vmctx: *mut VMContext) -> String {
     format!("wasm trap at {:?}", pc)
 }
 
+fn run_post_unwind_actions() {
+    FIX_STACK.with(|fix_stack| {
+        if fix_stack.get() {
+            #[cfg(target_os = "windows")]
+            {
+                // We need to restore guard page under stack to handle future stack overflows properly.
+                // https://docs.microsoft.com/en-us/cpp/c-runtime-library/reference/resetstkoflw?view=vs-2019
+                if unsafe { _resetstkoflw() == 0 } {
+                    panic!("Failed to fix the stack after unwinding");
+                }
+            }
+            fix_stack.set(false);
+        }
+    })
+}
+
 /// Call the wasm function pointed to by `callee`. `values_vec` points to
 /// a buffer which holds the incoming arguments, and to which the outgoing
 /// return values will be written.
@@ -69,6 +98,7 @@ pub unsafe extern "C" fn wasmtime_call_trampoline(
     values_vec: *mut u8,
 ) -> Result<(), String> {
     if WasmtimeCallTrampoline(vmctx as *mut u8, callee, values_vec) == 0 {
+        run_post_unwind_actions();
         Err(trap_message(vmctx))
     } else {
         Ok(())
