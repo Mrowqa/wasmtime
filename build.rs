@@ -123,34 +123,34 @@ fn avoid_keywords(name: &str) -> &str {
 fn ignore(testsuite: &str, name: &str) -> bool {
     if cfg!(windows) {
         return match (testsuite, name) {
-            ("spec_testsuite", "address") => true,
-            ("spec_testsuite", "align") => true,
-            ("spec_testsuite", "call") => true,
-            ("spec_testsuite", "call_indirect") => true,
-            ("spec_testsuite", "conversions") => true,
-            ("spec_testsuite", "elem") => true,
-            ("spec_testsuite", "fac") => true,
-            ("spec_testsuite", "func_ptrs") => true,
-            ("spec_testsuite", "globals") => true,
-            ("spec_testsuite", "i32") => true,
-            ("spec_testsuite", "i64") => true,
-            ("spec_testsuite", "f32") => true,
-            ("spec_testsuite", "f64") => true,
-            ("spec_testsuite", "if") => true,
-            ("spec_testsuite", "imports") => true,
-            ("spec_testsuite", "int_exprs") => true,
-            ("spec_testsuite", "linking") => true,
-            ("spec_testsuite", "memory_grow") => true,
-            ("spec_testsuite", "memory_trap") => true,
-            ("spec_testsuite", "resizing") => true,
-            ("spec_testsuite", "select") => true,
-            ("spec_testsuite", "skip-stack-guard-page") => true,
-            ("spec_testsuite", "start") => true,
-            ("spec_testsuite", "traps") => true,
-            ("spec_testsuite", "unreachable") => true,
-            ("spec_testsuite", "unwind") => true,
-            ("misc_testsuite", "misc_traps") => true,
-            ("misc_testsuite", "stack_overflow") => true,
+            ("spec_testsuite", "address") => true, // loops
+            ("spec_testsuite", "align") => true, // loops
+            ("spec_testsuite", "call") => true, // loops
+            ("spec_testsuite", "call_indirect") => true, // loops
+            ("spec_testsuite", "conversions") => true, // stack
+            ("spec_testsuite", "elem") => true, // stack
+            ("spec_testsuite", "fac") => true, // loops
+            ("spec_testsuite", "func_ptrs") => true, // stack
+            ("spec_testsuite", "globals") => true, // stack
+            ("spec_testsuite", "i32") => true, // stack
+            ("spec_testsuite", "i64") => true, // stack
+            ("spec_testsuite", "f32") => true, // fails
+            ("spec_testsuite", "f64") => true, // fails
+            ("spec_testsuite", "if") => true, // stack
+            ("spec_testsuite", "imports") => true, // stack
+            ("spec_testsuite", "int_exprs") => true, // stack
+            ("spec_testsuite", "linking") => true, // stack
+            ("spec_testsuite", "memory_grow") => true, // stack
+            ("spec_testsuite", "memory_trap") => true, // stack
+            ("spec_testsuite", "resizing") => true, // stack
+            ("spec_testsuite", "select") => true, // stack
+            ("spec_testsuite", "skip-stack-guard-page") => true, // segfault
+            ("spec_testsuite", "start") => true, // well, it fails... should check error message
+            ("spec_testsuite", "traps") => true, // stack
+            ("spec_testsuite", "unreachable") => true, // stack / illegal instruction
+            ("spec_testsuite", "unwind") => true, // stack / illegal instruction
+            ("misc_testsuite", "misc_traps") => true, // stack
+            ("misc_testsuite", "stack_overflow") => true, // loops
             (_, _) => false,
         };
     }

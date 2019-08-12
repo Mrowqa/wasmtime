@@ -246,6 +246,7 @@ mod host_impl {
         context_record: PCONTEXT,
         _dispatcher_context: PDISPATCHER_CONTEXT,
     ) -> EXCEPTION_DISPOSITION {
+        // TODO never called (=> so neither tested); i don't know why
         eprintln!("exception_handler() for mmap {:?}", exception_record);
         let mut exc_ptrs = EXCEPTION_POINTERS {
             ExceptionRecord: exception_record,

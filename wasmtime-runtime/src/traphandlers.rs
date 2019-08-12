@@ -5,7 +5,6 @@ use crate::vmcontext::{VMContext, VMFunctionBody};
 use core::cell::Cell;
 use core::ptr;
 use std::string::String;
-use winapi::ctypes::c_int;
 
 extern "C" {
     fn WasmtimeCallTrampoline(
@@ -14,7 +13,6 @@ extern "C" {
         values_vec: *mut u8,
     ) -> i32;
     fn WasmtimeCall(vmctx: *mut u8, callee: *const VMFunctionBody) -> i32;
-    fn _resetstkoflw() -> c_int;
 }
 
 thread_local! {
@@ -71,9 +69,6 @@ pub unsafe extern "C" fn wasmtime_call_trampoline(
     values_vec: *mut u8,
 ) -> Result<(), String> {
     if WasmtimeCallTrampoline(vmctx as *mut u8, callee, values_vec) == 0 {
-        if _resetstkoflw() == 0 {
-            eprintln!("failed to restore stack");
-        }
         Err(trap_message(vmctx))
     } else {
         Ok(())
