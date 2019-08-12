@@ -465,8 +465,9 @@ WasmTrapHandler(LPEXCEPTION_POINTERS exception)
     }
     AutoHandlingTrap aht;
 
-    printf("WasmTrapHandler 3\n"); fflush(stdout);
     EXCEPTION_RECORD* record = exception->ExceptionRecord;
+    printf("WasmTrapHandler 3 -- %x\n", record->ExceptionCode); fflush(stdout);
+    // exception codes: https://docs.microsoft.com/en-us/openspecs/windows_protocols/ms-erref/596a1078-e883-4972-9bbc-49e60bebca55
     if (record->ExceptionCode != EXCEPTION_ACCESS_VIOLATION &&
         record->ExceptionCode != EXCEPTION_ILLEGAL_INSTRUCTION &&
         record->ExceptionCode != EXCEPTION_STACK_OVERFLOW &&
