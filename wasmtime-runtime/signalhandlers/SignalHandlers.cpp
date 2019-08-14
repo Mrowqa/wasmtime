@@ -710,7 +710,7 @@ EnsureEagerSignalHandlers()
     // Otherwise, WasmTrapHandler needs to go first, so that we can recover
     // from wasm faults and continue execution without triggering handlers
     // such as MemoryProtectionExceptionHandler that assume we are crashing.
-    const bool firstHandler = true;
+    const bool firstHandler = true; // todo test with false
 # endif
     if (!AddVectoredExceptionHandler(firstHandler, WasmTrapHandler)) {
         // Windows has all sorts of random security knobs for disabling things

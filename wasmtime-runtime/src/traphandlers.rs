@@ -67,6 +67,7 @@ pub extern "C" fn LeaveScope(ptr: *const u8) {
 #[allow(non_snake_case)]
 #[no_mangle]
 pub extern "C" fn FixStackAfterUnwinding() {
+    eprintln!("Scheduling stack fix after unwinding");
     FIX_STACK.with(|fix_stack| fix_stack.set(true));
 }
 
@@ -86,9 +87,11 @@ fn run_post_unwind_actions() {
             {
                 // We need to restore guard page under stack to handle future stack overflows properly.
                 // https://docs.microsoft.com/en-us/cpp/c-runtime-library/reference/resetstkoflw?view=vs-2019
+                eprintln!("fixing stack");
                 if unsafe { _resetstkoflw() == 0 } {
                     panic!("Failed to fix the stack after unwinding");
                 }
+                eprintln!("fixed stack");
             }
             fix_stack.set(false);
         }

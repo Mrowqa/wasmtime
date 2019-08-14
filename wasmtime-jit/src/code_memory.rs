@@ -37,18 +37,18 @@ impl CodeMemory {
             // For every mapping on Windows, we need an extra information for structured
             // exception handling. We use the same handler for every function, so just
             // one record for single mmap is fine.
-            #[cfg(all(target_os = "windows", target_pointer_width = "64"))]
-            let size = size + region::page::size();
+                // #[cfg(all(target_os = "windows", target_pointer_width = "64"))]
+                // let size = size + region::page::size();
             self.mmaps.push(mem::replace(
                 &mut self.current,
                 Mmap::with_at_least(cmp::max(0x10000, size))?,
             ));
             self.position = 0;
-            #[cfg(all(target_os = "windows", target_pointer_width = "64"))]
-            {
-                host_impl::register_executable_memory(&mut self.current);
-                self.position += region::page::size();
-            }
+                // #[cfg(all(target_os = "windows", target_pointer_width = "64"))]
+                // {
+                //     host_impl::register_executable_memory(&mut self.current);
+                //     self.position += region::page::size();
+                // }
         }
         let old_position = self.position;
         self.position += size;
@@ -117,6 +117,9 @@ mod host_impl {
     //    https://docs.microsoft.com/en-us/cpp/build/exception-handling-x64?view=vs-2019
     // SpiderMonkey impl:
     //    https://searchfox.org/mozilla-central/source/js/src/jit/ProcessExecutableMemory.cpp#139-227
+    // CppCon 2018 talk about SEH with good example:
+    //    https://www.youtube.com/watch?v=COEv2kq_Ht8
+    //    https://github.com/CppCon/CppCon2018/blob/master/Presentations/unwinding_the_stack_exploring_how_cpp_exceptions_work_on_windows/unwinding_the_stack_exploring_how_cpp_exceptions_work_on_windows__james_mcnellis__cppcon_2018.pdf
     // Note:
     //    ARM requires different treatment (not implemented)
 
@@ -124,22 +127,14 @@ mod host_impl {
     use std::convert::TryFrom;
     use std::ptr;
     use wasmtime_runtime::Mmap;
-    use winapi::shared::basetsd::{DWORD64, ULONG64};
+    use winapi::shared::basetsd::ULONG64;
     use winapi::shared::minwindef::{BYTE, ULONG};
     use winapi::shared::ntdef::FALSE;
-    use winapi::um::winnt::RtlInstallFunctionTableCallback;
+    use winapi::um::winnt::RtlAddFunctionTable;
     use winapi::um::winnt::{
-        EXCEPTION_POINTERS, LONG, PCONTEXT, PDISPATCHER_CONTEXT, PEXCEPTION_POINTERS,
-        PEXCEPTION_RECORD, PRUNTIME_FUNCTION, PVOID, RUNTIME_FUNCTION, UNW_FLAG_EHANDLER,
+        PCONTEXT, PDISPATCHER_CONTEXT, PEXCEPTION_RECORD, RUNTIME_FUNCTION, UNW_FLAG_EHANDLER,
     };
     use winapi::vc::excpt::EXCEPTION_DISPOSITION;
-
-    // todo probably we want to have a function to set a callback
-    // todo WINAPI calling convention
-    // todo even if WasmTrapHandler is a static function, it still compiles!
-    extern "C" {
-        fn WasmTrapHandler(_: PEXCEPTION_POINTERS) -> LONG;
-    }
 
     #[repr(C)]
     struct ExceptionHandlerRecord {
@@ -203,28 +198,25 @@ mod host_impl {
         r.thunk[10] = 0xff;
         r.thunk[11] = 0xe0;
 
-        // todo probably not needed, but call it just in case
-        unsafe {
-            region::protect(
-                mmap.as_mut_ptr(),
-                region::page::size(),
-                region::Protection::ReadExecute,
-            )
-        }
-        .expect("unable to make memory readonly and executable");
+        // // todo probably not needed, but call it just in case
+        // unsafe {
+        //     region::protect(
+        //         mmap.as_mut_ptr(),
+        //         region::page::size(),
+        //         region::Protection::ReadExecute,
+        //     )
+        // }
+        // .expect("unable to make memory readonly and executable");
 
         let res = unsafe {
-            RtlInstallFunctionTableCallback(
-                u64::try_from(mmap.as_ptr() as usize).unwrap() | 0x3,
+            RtlAddFunctionTable(
+                mmap.as_mut_ptr() as *mut _,
+                1,
                 u64::try_from(mmap.as_ptr() as usize).unwrap(),
-                u32::try_from(mmap.len()).unwrap(),
-                Some(runtime_function_callback),
-                mmap.as_mut_ptr() as *mut _, // user data ptr
-                ptr::null_mut(),
             )
         };
         if res == FALSE {
-            panic!("RtlInstallFunctionTableCallback() failed");
+            panic!("RtlAddFunctionTable() failed");
         }
 
         eprintln!(
@@ -232,37 +224,25 @@ mod host_impl {
             mmap.as_ptr()
         );
 
-        // Note: our section needs to have read & execute rights, and publish() will do it.
-        //       It needs to be called before calling jitted code, so everything's fine.
-        // TODO: is above true? Or do we have to call region::protect() before RtlInstallFunctionTableCallback()?
+        // Note: our section needs to have read & execute rights for the thunk,
+        //       and publish() will do it before executing the JIT code.
     }
 
-    // What MSDN docs say (https://docs.microsoft.com/en-us/cpp/build/exception-handling-x64?view=vs-2019#language-specific-handler)
-    // and what's in SpiderMonkey (https://searchfox.org/mozilla-central/source/js/src/jit/ProcessExecutableMemory.cpp#124-133)
-    // doesn't match for all arguments, but at least they match for the two pointers that are actually used.
+    // This method should NEVER be called, because we're using vectored exception handlers
+    // which have higher priority. We can do a couple of things:
+    // 1) unreachable!()
+    // 2) call WasmTrapHandler
+    //    -- if exception originates from JIT code, should catch the exception and unwind
+    //       the stack
+    // 3) return ExceptionContinueSearch, so OS will continue search for exception handlers
+    //    -- imported functions should handle their exceptions, and JIT code doesn't raise
+    //       its own exceptions
     unsafe extern "C" fn exception_handler(
-        exception_record: PEXCEPTION_RECORD,
+        _exception_record: PEXCEPTION_RECORD,
         _establisher_frame: ULONG64,
-        context_record: PCONTEXT,
+        _context_record: PCONTEXT,
         _dispatcher_context: PDISPATCHER_CONTEXT,
     ) -> EXCEPTION_DISPOSITION {
-        // TODO never called (=> so neither tested); i don't know why
-        eprintln!("exception_handler() for mmap {:?}", exception_record);
-        let mut exc_ptrs = EXCEPTION_POINTERS {
-            ExceptionRecord: exception_record,
-            ContextRecord: context_record,
-        };
-        let ret = WasmTrapHandler(&mut exc_ptrs) as EXCEPTION_DISPOSITION;
-        eprintln!("exception_handler() END for mmap {:?}", exception_record);
-        ret
-    }
-
-    unsafe extern "C" fn runtime_function_callback(
-        _control_pc: DWORD64,
-        context: PVOID,
-    ) -> PRUNTIME_FUNCTION {
-        eprintln!("runtime_function_callback() for mmap {:?}", context);
-        // context (user data ptr) is a pointer to the first page of mmap where the needed structure lies
-        context as *mut _
+        unreachable!("WasmTrapHandler (vectored exception handler) should have already handled the exception");
     }
 }
