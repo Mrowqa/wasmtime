@@ -40,6 +40,11 @@ EnsureEagerSignalHandlers(void);
 int
 EnsureDarwinMachPorts(void);
 
+// windows only
+#include <windows.h>
+LONG WINAPI
+WasmTrapHandlerFilter(LPEXCEPTION_POINTERS exception);
+
 #ifdef __cplusplus
 } // extern "C"
 #endif

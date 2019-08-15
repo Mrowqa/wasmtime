@@ -37,18 +37,18 @@ impl CodeMemory {
             // For every mapping on Windows, we need an extra information for structured
             // exception handling. We use the same handler for every function, so just
             // one record for single mmap is fine.
-                // #[cfg(all(target_os = "windows", target_pointer_width = "64"))]
-                // let size = size + region::page::size();
+                #[cfg(all(target_os = "windows", target_pointer_width = "64"))]
+                let size = size + region::page::size();
             self.mmaps.push(mem::replace(
                 &mut self.current,
                 Mmap::with_at_least(cmp::max(0x10000, size))?,
             ));
             self.position = 0;
-                // #[cfg(all(target_os = "windows", target_pointer_width = "64"))]
-                // {
-                //     host_impl::register_executable_memory(&mut self.current);
-                //     self.position += region::page::size();
-                // }
+                #[cfg(all(target_os = "windows", target_pointer_width = "64"))]
+                {
+                    host_impl::register_executable_memory(&mut self.current);
+                    self.position += region::page::size();
+                }
         }
         let old_position = self.position;
         self.position += size;
@@ -127,6 +127,7 @@ mod host_impl {
     use std::convert::TryFrom;
     use std::ptr;
     use wasmtime_runtime::Mmap;
+    use winapi::ctypes::c_int;
     use winapi::shared::basetsd::ULONG64;
     use winapi::shared::minwindef::{BYTE, ULONG};
     use winapi::shared::ntdef::FALSE;
@@ -134,13 +135,13 @@ mod host_impl {
     use winapi::um::winnt::{
         PCONTEXT, PDISPATCHER_CONTEXT, PEXCEPTION_RECORD, RUNTIME_FUNCTION, UNW_FLAG_EHANDLER,
     };
-    use winapi::vc::excpt::EXCEPTION_DISPOSITION;
+    use winapi::vc::excpt::{EXCEPTION_CONTINUE_SEARCH, ExceptionContinueSearch, EXCEPTION_DISPOSITION};
 
     #[repr(C)]
     struct ExceptionHandlerRecord {
         runtime_function: RUNTIME_FUNCTION,
         unwind_info: UnwindInfo,
-        thunk: [u8; 12],
+        thunk: [u8; 13],//12],
     }
 
     // Note: this is a bitfield in WinAPI, so some fields are actually merged below
@@ -190,13 +191,15 @@ mod host_impl {
         unsafe {
             ptr::write_unaligned::<usize>(
                 &mut r.thunk[2] as *mut _ as *mut usize,
-                &exception_handler as *const _ as usize,
+                exception_handler as usize,
             )
         };
-
+        r.thunk[10] = 0x90; //0xCC;
         // jmp rax
-        r.thunk[10] = 0xff;
-        r.thunk[11] = 0xe0;
+        r.thunk[10+1] = 0xff;
+        r.thunk[11+1] = 0xe0;
+
+        // println!("--------------- {:?} and {:?}", exception_handler as usize, &exception_handler as *const _ as usize);
 
         // // todo probably not needed, but call it just in case
         // unsafe {
@@ -237,12 +240,21 @@ mod host_impl {
     // 3) return ExceptionContinueSearch, so OS will continue search for exception handlers
     //    -- imported functions should handle their exceptions, and JIT code doesn't raise
     //       its own exceptions
+    extern "C" {
+        fn Unwind();
+        fn _resetstkoflw() -> c_int;
+    }
     unsafe extern "C" fn exception_handler(
         _exception_record: PEXCEPTION_RECORD,
         _establisher_frame: ULONG64,
         _context_record: PCONTEXT,
         _dispatcher_context: PDISPATCHER_CONTEXT,
     ) -> EXCEPTION_DISPOSITION {
-        unreachable!("WasmTrapHandler (vectored exception handler) should have already handled the exception");
+        // eprintln!("buh");
+        // unreachable!("WasmTrapHandler (vectored exception handler) should have already handled the exception");
+        assert_eq!(_resetstkoflw(), 0);
+        Unwind(); // tmp
+        0 // dumb value
+        // ExceptionContinueSearch
     }
 }

@@ -409,24 +409,25 @@ HandleTrap(CONTEXT* context, bool stackFixRequired)
 {
     assert(sAlreadyHandlingTrap);
 
-    RecordTrap(ContextToPC(context));
+    RecordTrap(ContextToPC(context)); // todo tmp
 
-    // Unwind calls longjmp, so it doesn't run the automatic
-    // sAlreadhHanldingTrap cleanups, so reset it manually before doing
-    // a longjmp.
-    sAlreadyHandlingTrap = false;
+    // TODO: maybe the apple mach ports problem above can use the scheduler below.
+    if (stackFixRequired) {
+        FixStackAfterUnwinding();
+        // _resetstkoflw();
+    }
 
-#if defined(USE_APPLE_MACH_PORTS)
+#if defined(USE_APPLE_MACH_PORTS) //|| defined(_WIN32)
     // Reroute the PC to run the Unwind function on the main stack after the
     // handler exits. This doesn't yet work for stack overflow traps, because
     // in that case the main thread doesn't have any space left to run.
     SetContextPC(context, reinterpret_cast<const uint8_t*>(&Unwind));
 #else
 
-    // TODO: maybe the apple mach ports problem above can use the scheduler below.
-    if (stackFixRequired) {
-        FixStackAfterUnwinding();
-    }
+    // Unwind calls longjmp, so it doesn't run the automatic
+    // sAlreadhHanldingTrap cleanups, so reset it manually before doing
+    // a longjmp.
+    // sAlreadyHandlingTrap = false; // tmp
 
     // For now, just call Unwind directly, rather than redirecting the PC there,
     // so that it runs on the alternate signal handler stack. To run on the main
@@ -447,12 +448,13 @@ HandleTrap(CONTEXT* context, bool stackFixRequired)
 // Compiled in all user binaries, so should be stable over time.
 static const unsigned sThreadLocalArrayPointerIndex = 11;
 
-static LONG WINAPI
-WasmTrapHandler(LPEXCEPTION_POINTERS exception)
+// static
+LONG WINAPI
+WasmTrapHandlerFilter(LPEXCEPTION_POINTERS exception)
 {
     // TODO: this fuction should check if PC is within bounds of jit code.
 
-    printf("WasmTrapHandler 1 -- PC=%p  SP=%p\n", exception->ContextRecord->Rip, exception->ContextRecord->Rsp); fflush(stdout);
+    printf("WasmTrapHandler 1 -- PC=%p  SP=%p\n", (void*)exception->ContextRecord->Rip, (void*)exception->ContextRecord->Rsp); fflush(stdout);
 
     // Make sure TLS is initialized before reading sAlreadyHandlingTrap.
     if (!NtCurrentTeb()->Reserved1[sThreadLocalArrayPointerIndex]) {
@@ -478,14 +480,18 @@ WasmTrapHandler(LPEXCEPTION_POINTERS exception)
     }
 
     printf("WasmTrapHandler 4\n"); fflush(stdout);
-    if (!HandleTrap(exception->ContextRecord,
-                    record->ExceptionCode == EXCEPTION_STACK_OVERFLOW))
-    {
-        return EXCEPTION_CONTINUE_SEARCH;
-    }
-    printf("WasmTrapHandler 5\n"); fflush(stdout);
 
-    return EXCEPTION_CONTINUE_EXECUTION;
+    return EXCEPTION_EXECUTE_HANDLER;
+
+    // todo code below
+    // if (!HandleTrap(exception->ContextRecord,
+    //                 record->ExceptionCode == EXCEPTION_STACK_OVERFLOW))
+    // {
+    //     return EXCEPTION_CONTINUE_SEARCH;
+    // }
+    // printf("WasmTrapHandler 5\n"); fflush(stdout);
+
+    // return EXCEPTION_CONTINUE_EXECUTION;
 }
 
 #elif defined(USE_APPLE_MACH_PORTS)
@@ -701,22 +707,22 @@ EnsureEagerSignalHandlers()
     // Install whatever exception/signal handler is appropriate for the OS.
 #if defined(_WIN32)
 
-# if defined(MOZ_ASAN)
-    // Under ASan we need to let the ASan runtime's ShadowExceptionHandler stay
-    // in the first handler position. This requires some coordination with
-    // MemoryProtectionExceptionHandler::isDisabled().
-    const bool firstHandler = false;
-# else
-    // Otherwise, WasmTrapHandler needs to go first, so that we can recover
-    // from wasm faults and continue execution without triggering handlers
-    // such as MemoryProtectionExceptionHandler that assume we are crashing.
-    const bool firstHandler = true; // todo test with false
-# endif
-    if (!AddVectoredExceptionHandler(firstHandler, WasmTrapHandler)) {
-        // Windows has all sorts of random security knobs for disabling things
-        // so make this a dynamic failure that disables wasm, not an abort().
-        return false;
-    }
+// # if defined(MOZ_ASAN)
+//     // Under ASan we need to let the ASan runtime's ShadowExceptionHandler stay
+//     // in the first handler position. This requires some coordination with
+//     // MemoryProtectionExceptionHandler::isDisabled().
+//     const bool firstHandler = false;
+// # else
+//     // Otherwise, WasmTrapHandler needs to go first, so that we can recover
+//     // from wasm faults and continue execution without triggering handlers
+//     // such as MemoryProtectionExceptionHandler that assume we are crashing.
+//     const bool firstHandler = true; // todo test with false
+// # endif
+//     if (!AddVectoredExceptionHandler(firstHandler, WasmTrapHandler)) {
+//         // Windows has all sorts of random security knobs for disabling things
+//         // so make this a dynamic failure that disables wasm, not an abort().
+//         return false;
+//     }
 
 #elif defined(USE_APPLE_MACH_PORTS)
     // All the Mach setup in EnsureDarwinMachPorts.
